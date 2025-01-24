@@ -1,60 +1,62 @@
 import pandas as pd
 from sqlalchemy import create_engine
-import argparse # python standard parser
+import argparse
 import os
 
-def main(params) :
-
+def main(params):
     user = params.user
-    password = user.password
-    host = user.host
-    port = user.port
-    db = user.db
-    table_name = user.table_name
-    url = user.url
+    password = params.password
+    host = params.host
+    port = params.port
+    db = params.db
+    table_name = params.table_name
+    url = params.url
     csv_name = 'output.csv'
+    data = 'data.csv.gz'
 
-    os.system(f"wget {url} -O {csv_name}")
+    # Download the file
+    os.system(f"wget {url} -O {data}")
 
-    # TODO : extract if it is in tar.gz format
+    # Extract the gzipped CSV
+    os.system(f"gunzip -c {data} > {csv_name}")
 
-    # create and connect with postgresql 
-    engine = create_engine('postgresql://{user}:{password}@{host}:{port}/{db}')
-    # engine.connect() # ??
+    # Create and connect with PostgreSQL
+    engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
 
-    # use iterator to divide it into chunks of size 100000 , since it is hard to run it at once 
+    # Use iterator to divide it into chunks
     df_iter = pd.read_csv(csv_name, iterator=True, chunksize=100000)
 
-    # insert the head of the table_name, and if the name exists already .. replace it
-    df.head(n=0).to_sql(name='{table_name}', con=engine, if_exists='replace')
+    # Insert the table schema
+    df = next(df_iter)
+    df.head(n=0).to_sql(name=table_name, con=engine, if_exists='replace')
 
-    # insert all chunks iteratively
-    while True :
-        df = next(df_iter)
-        
-        df.lpep_pickup_datetime= pd.to_datetime(df.lpep_pickup_datetime)
-        df.lpep_dropoff_datetime= pd.to_datetime(df.lpep_dropoff_datetime)
-        df.to_sql(name='{table_name}', con=engine, if_exists='append')
+    # Insert all chunks iteratively
+    while True:
+        try:
+            df = next(df_iter)
+            df.lpep_pickup_datetime = pd.to_datetime(df.lpep_pickup_datetime)
+            df.lpep_dropoff_datetime = pd.to_datetime(df.lpep_dropoff_datetime)
+            df.to_sql(name=table_name, con=engine, if_exists='append')
+        except StopIteration:
+            print("Data ingestion complete.")
+            break
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser(
-                        prog='IngestData',
-                        description='Ingest CSV data into postgres container',
-                        epilog='You need user , password , host , port, database name , table_name , url of the csv')
+        prog='IngestData',
+        description='Ingest CSV data into PostgreSQL container',
+        epilog='You need user, password, host, port, database name, table_name, and the URL of the CSV.'
+    )
 
-    parser.add_argument('user', help='user name for postgres')
-    parser.add_argument('passwrod', help='passwrod for postgres')
-    parser.add_argument('host', help='host for postgres')
-    parser.add_argument('port', help='port for postgres')
-    parser.add_argument('db', help='database name for postgres')
-    parser.add_argument('table_name', help='table_name name where we write the results to ')
-    parser.add_argument('url', help='url of the csv file')
+    parser.add_argument('--user', required=True, help='User name for PostgreSQL')
+    parser.add_argument('--password', required=True, help='Password for PostgreSQL')
+    parser.add_argument('--host', required=True, help='Host for PostgreSQL')
+    parser.add_argument('--port', required=True, help='Port for PostgreSQL')
+    parser.add_argument('--db', required=True, help='Database name for PostgreSQL')
+    parser.add_argument('--table_name', required=True, help='Table name to write the results to')
+    parser.add_argument('--url', required=True, help='URL of the CSV file')
 
     args = parser.parse_args()
 
-    # execute 
+    # Execute the main function
     main(args)
-
-
-
