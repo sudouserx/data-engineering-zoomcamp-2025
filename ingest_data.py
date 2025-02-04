@@ -14,49 +14,46 @@ def main(params):
     csv_name = 'output.csv'
     data = 'data.csv.gz'
 
-    # Download the file
     os.system(f"wget {url} -O {data}")
-
-    # Extract the gzipped CSV
     os.system(f"gunzip -c {data} > {csv_name}")
 
-    # Create and connect with PostgreSQL
-    engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
+    engine = create_engine(f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}')
+    conn = engine.connect()
 
-    # Use iterator to divide it into chunks
     df_iter = pd.read_csv(csv_name, iterator=True, chunksize=100000)
 
-    # Insert the table schema
+    # Process first chunk
     df = next(df_iter)
-    df.head(n=0).to_sql(name=table_name, con=engine, if_exists='replace')
+    df.lpep_pickup_datetime = pd.to_datetime(df.lpep_pickup_datetime)
+    df.lpep_dropoff_datetime = pd.to_datetime(df.lpep_dropoff_datetime)
 
-    # Insert all chunks iteratively
+    # Create table with correct schema
+    df.head(n=0).to_sql(name=table_name, con=conn, if_exists='replace')
+    # Insert first chunk
+    df.to_sql(name=table_name, con=conn, if_exists='append')
+
+    # Process remaining chunks
     while True:
         try:
             df = next(df_iter)
             df.lpep_pickup_datetime = pd.to_datetime(df.lpep_pickup_datetime)
             df.lpep_dropoff_datetime = pd.to_datetime(df.lpep_dropoff_datetime)
-            df.to_sql(name=table_name, con=engine, if_exists='append')
+            df.to_sql(name=table_name, con=conn, if_exists='append')
         except StopIteration:
-            print("Data ingestion complete.")
+            print("Data ingestion completed.")
             break
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        prog='IngestData',
-        description='Ingest CSV data into PostgreSQL container',
-        epilog='You need user, password, host, port, database name, table_name, and the URL of the CSV.'
-    )
+    conn.close()
 
-    parser.add_argument('--user', required=True, help='User name for PostgreSQL')
-    parser.add_argument('--password', required=True, help='Password for PostgreSQL')
-    parser.add_argument('--host', required=True, help='Host for PostgreSQL')
-    parser.add_argument('--port', required=True, help='Port for PostgreSQL')
-    parser.add_argument('--db', required=True, help='Database name for PostgreSQL')
-    parser.add_argument('--table_name', required=True, help='Table name to write the results to')
-    parser.add_argument('--url', required=True, help='URL of the CSV file')
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Ingest CSV data to Postgres')
+    parser.add_argument('--user', required=True)
+    parser.add_argument('--password', required=True)
+    parser.add_argument('--host', required=True)
+    parser.add_argument('--port', required=True)
+    parser.add_argument('--db', required=True)
+    parser.add_argument('--table_name', required=True)
+    parser.add_argument('--url', required=True)
 
     args = parser.parse_args()
-
-    # Execute the main function
     main(args)
